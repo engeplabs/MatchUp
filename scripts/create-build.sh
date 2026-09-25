@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+METAMOD_VERSION=1411
+CSSAPI_VERSION=$(dotnet list package --format json | jq -r '.projects[0].frameworks.[0].topLevelPackages.[] | select(.id == "CounterStrikeSharp.API") | .requestedVersion')
+
+mkdir -p build
+cd build
+
+wget -q https://github.com/roflmuffin/CounterStrikeSharp/releases/download/v${CSSAPI_VERSION}/counterstrikesharp-with-runtime-linux-${CSSAPI_VERSION}.zip
+unzip counterstrikesharp-with-runtime-linux-${CSSAPI_VERSION}.zip
+rm counterstrikesharp-with-runtime-linux-${CSSAPI_VERSION}.zip
+
+wget -c https://github.com/alliedmodders/metamod-source/releases/download/2.0.0.${METAMOD_VERSION}/mmsource-2.0.0-git${METAMOD_VERSION}-linux.tar.gz -O - | tar -xz
+
+cd ..
+
+dotnet build -c Release
+
+mkdir -p build/addons/counterstrikesharp/plugins/MatchUp
+mkdir -p build/cfg
+
+cp bin/Release/net10.0/* build/addons/counterstrikesharp/plugins/MatchUp/
+
+cp -R cfg/* build/cfg/
+
+
+pushd build
+zip -r MatchUp+cssharp+metamod.zip *
+popd

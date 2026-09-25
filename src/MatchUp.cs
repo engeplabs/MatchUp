@@ -1,4 +1,4 @@
-﻿using CounterStrikeSharp.API;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
@@ -10,8 +10,10 @@ namespace MatchUp;
 
 public class MatchUp : BasePlugin
 {
+    public const string Version = "0.9.2";
+
     public override string ModuleName => "MatchUp";
-    public override string ModuleVersion => "0.7.1";
+    public override string ModuleVersion => Version;
 
     public override void Load(bool hotReload)
     {
@@ -41,7 +43,7 @@ public class MatchUp : BasePlugin
     [ConsoleCommand("matchup_map", "Set match map")]
     public void OnMapSet(CCSPlayerController? player, CommandInfo command)
     {
-        Console.WriteLine($"setting map with args: {command.GetCommandString}");
+        command.ReplyToCommand($"setting map with args: {command.GetCommandString}");
         MatchConfig.SetMap(command.GetArg(1));
     }
 
@@ -69,13 +71,31 @@ public class MatchUp : BasePlugin
         ResetMatch();
     }
 
+    [ConsoleCommand("matchup_version", "Prints the current version of MatchUp")]
+    public void OnVersion(CCSPlayerController? player, CommandInfo command)
+    {
+        command.ReplyToCommand($"MatchUp version {ModuleVersion}");
+    }
+
+    [ConsoleCommand("matchup_status", "Prints match status as JSON")]
+    public void OnMatchStatus(CCSPlayerController? player, CommandInfo command)
+    {
+        command.ReplyToCommand($"\n{Utils.GetMatchStatusJson() ?? "No match status available"}\n");
+    }
+
+    [ConsoleCommand("matchup_demo", "Prints the demo recording and upload status")]
+    public void OnDemoStatus(CCSPlayerController? player, CommandInfo command)
+    {
+        Utils.PrintDemoStatus(command.ReplyToCommand);
+    }
+
     [ConsoleCommand("matchup_reconfigure", "Reloads the MatchUp configs")]
     public void OnReConfigure(CCSPlayerController? player, CommandInfo command)
     {
         // only allow reconfiguring during the setup phase
         if (StateMachine.GetCurrentState().GetType() != typeof(SetupState))
         {
-            Console.WriteLine("Can only reconfigure during setup phase");
+            command.ReplyToCommand("Can only reconfigure during setup phase");
             return;
         }
 
@@ -87,6 +107,9 @@ public class MatchUp : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo info)
     {
+        // Echo chat messages to console as JSON for Discord bridge
+        EventBridge.OnChat(@event);
+
         if (!@event.Text.StartsWith('.') && !@event.Text.StartsWith('!'))
         {
             return HookResult.Continue;
@@ -127,6 +150,7 @@ public class MatchUp : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
     {
+        EventBridge.OnPlayerTeam(@event);
         StateMachine.GetCurrentState().OnPlayerTeam(@event);
         return HookResult.Continue;
     }
@@ -139,7 +163,15 @@ public class MatchUp : BasePlugin
         {
             @event.Userid?.PrintToChat($" {ChatColors.Magenta}{welcomeMessage}");
         }
+        EventBridge.OnPlayerConnect(@event);
         StateMachine.GetCurrentState().OnPlayerConnect(@event);
+        return HookResult.Continue;
+    }
+
+    [GameEventHandler]
+    public HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
+    {
+        EventBridge.OnPlayerDisconnect(@event);
         return HookResult.Continue;
     }
 
@@ -153,18 +185,27 @@ public class MatchUp : BasePlugin
     [GameEventHandler]
     public HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
     {
+        EventBridge.OnRoundEnd(@event);
         StateMachine.GetCurrentState().OnRoundEnd(@event);
         return HookResult.Continue;
     }
 
     private static void ResetMatch()
     {
+        EventBridge.OnReset();
         Server.PrintToChatAll($" {ChatColors.Green}Resetting!!!");
 
         Utils.DelayedCall(TimeSpan.FromSeconds(1), () =>
         {
             StateMachine.SwitchState(GameState.Loading);
-            Server.ExecuteCommand($"changelevel {Server.MapName}");
+            if (!string.IsNullOrEmpty(MatchConfig.Map.WorkshopId))
+            {
+                Server.ExecuteCommand($"host_workshop_map {MatchConfig.Map.WorkshopId}");
+            }
+            else
+            {
+                Server.ExecuteCommand($"changelevel {MatchConfig.Map.Name}");
+            }
         });
     }
 }
